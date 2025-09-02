@@ -1,0 +1,91 @@
+# Dynamic Response Templates for Different Attack Types
+
+responses:
+  # SQL Injection Responses
+  sql_injection:
+    - type: "fake_error"
+      content: "MySQL Error 1064: You have an error in your SQL syntax"
+      delay: 2.5
+    - type: "fake_success"
+      content: "Query executed successfully. 0 rows affected."
+      delay: 1.8
+    - type: "honeypot_data"
+      content: "SELECT * FROM users WHERE id=1; -- admin:password123"
+      delay: 3.2
+      
+  # XSS Attack Responses  
+  xss:
+    - type: "reflected"
+      content: "Your search for '{payload}' returned 0 results"
+      delay: 1.2
+    - type: "filtered"
+      content: "Invalid characters detected. Request blocked."
+      delay: 0.8
+      
+  # Command Injection Responses
+  command_injection:
+    - type: "fake_execution"
+      content: "uid=33(www-data) gid=33(www-data) groups=33(www-data)"
+      delay: 2.1
+    - type: "permission_denied"
+      content: "bash: /bin/sh: Permission denied"
+      delay: 1.5
+      
+  # Brute Force Responses
+  brute_force:
+    - type: "fake_success"
+      content: "Login successful. Welcome, admin!"
+      delay: 0.5
+    - type: "account_locked"
+      content: "Account temporarily locked. Try again in 15 minutes."
+      delay: 1.0
+    - type: "weak_password"
+      content: "Password must be changed. Current password expires in 3 days."
+      delay: 2.0
+      
+  # Port Scan Responses
+  port_scan:
+    - type: "fake_services"
+      content: "22/tcp open ssh OpenSSH 7.4\n80/tcp open http Apache/2.4.6\n443/tcp open https"
+      delay: 5.0
+    - type: "honeypot_banner"
+      content: "Honeypot-Industrial-v1.0 Ready"
+      delay: 1.0
+      
+  # Default responses for unknown attacks
+  default:
+    - type: "generic_error"
+      content: "Internal server error. Please contact administrator."
+      delay: 2.0
+    - type: "maintenance"
+      content: "System under maintenance. Please try again later."
+      delay: 1.5
+      
+# LLM Prompt Templates
+prompts:
+  attack_analysis: |
+    You are an industrial cybersecurity expert analyzing a potential cyber attack.
+    
+    Attack Details:
+    - Type: {attack_type}
+    - Source IP: {source_ip}
+    - Target: {target}
+    - Payload: {payload}
+    - Timestamp: {timestamp}
+    
+    Based on this attack pattern, generate a realistic response that would:
+    1. Keep the attacker engaged
+    2. Gather more intelligence about their capabilities
+    3. Appear as a vulnerable industrial system
+    4. Not reveal this is a honeypot
+    
+    Response should be technical and believable for industrial equipment.
+    
+  response_generation: |
+    Generate a response for an industrial system that appears vulnerable to: {attack_type}
+    
+    Context: {context}
+    System Type: {system_type}
+    
+    The response should be realistic, engaging, and help gather intelligence while maintaining deception.
+    Keep the response concise and technical.
