@@ -1,0 +1,28 @@
+from setuptools import setup, find_packages
+
+setup(
+    name="industrial-honeypot",
+    version="1.0.0",
+    description="Industrial Internet Honeypot with LLM-based Dynamic Response",
+    author="Industrial Security Team",
+    packages=find_packages(),
+    install_requires=[
+        "asyncio-mqtt>=0.16.1",
+        "openai>=1.3.0",
+        "pyyaml>=6.0.1",
+        "aiofiles>=23.2.1",
+        "cryptography>=41.0.7",
+        "scapy>=2.5.0",
+        "pymodbus>=3.6.8",
+        "paramiko>=3.4.0",
+        "uvloop>=0.19.0",
+        "rich>=13.7.0",
+        "python-dotenv>=1.0.0",
+    ],
+    python_requires=">=3.8",
+    entry_points={
+        "console_scripts": [
+            "honeypot=src.main:main",
+        ],
+    },
+)
