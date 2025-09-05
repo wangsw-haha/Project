@@ -1,10 +1,20 @@
 import asyncio
 import socket
 import struct
+import time
 from typing import Dict, Any
 from loguru import logger
 from src.core.honeypot import BaseHoneypot
 from src.llm.service import llm_service
+
+# Import attack classification system
+try:
+    from src.classification.attack_classifier import attack_classifier, AttackType
+    from src.classification.response_generator import response_generator
+    CLASSIFICATION_AVAILABLE = True
+except ImportError:
+    CLASSIFICATION_AVAILABLE = False
+    logger.warning("Attack classification system not available for Modbus honeypot")
 
 
 class ModbusHoneypot(BaseHoneypot):
@@ -102,7 +112,7 @@ class ModbusHoneypot(BaseHoneypot):
             self.end_session(session_id)
     
     async def _process_modbus_request(self, data: bytes, source_ip: str, session_id: str) -> bytes:
-        """Process Modbus TCP request"""
+        """Process Modbus TCP request with attack classification"""
         try:
             if len(data) < 8:  # Minimum Modbus TCP frame size
                 return None
@@ -114,35 +124,85 @@ class ModbusHoneypot(BaseHoneypot):
             unit_id = data[6]
             function_code = data[7]
             
-            # Log the request
-            await self.log_attack(
-                source_ip,
-                0,
-                payload=f"Function: {function_code}, Unit: {unit_id}, Data: {data.hex()}",
-                attack_type="modbus_request",
-                session_id=session_id
-            )
+            # Prepare payload for classification
+            payload = f"Function: {function_code}, Unit: {unit_id}, Data: {data.hex()}"
             
-            # Process based on function code
-            if function_code == 1:  # Read Coils
-                return await self._read_coils(data, transaction_id, unit_id)
-            elif function_code == 2:  # Read Discrete Inputs
-                return await self._read_discrete_inputs(data, transaction_id, unit_id)
-            elif function_code == 3:  # Read Holding Registers
-                return await self._read_holding_registers(data, transaction_id, unit_id)
-            elif function_code == 4:  # Read Input Registers
-                return await self._read_input_registers(data, transaction_id, unit_id)
-            elif function_code == 5:  # Write Single Coil
-                return await self._write_single_coil(data, transaction_id, unit_id, source_ip, session_id)
-            elif function_code == 6:  # Write Single Register
-                return await self._write_single_register(data, transaction_id, unit_id, source_ip, session_id)
-            elif function_code == 15:  # Write Multiple Coils
-                return await self._write_multiple_coils(data, transaction_id, unit_id, source_ip, session_id)
-            elif function_code == 16:  # Write Multiple Registers
-                return await self._write_multiple_registers(data, transaction_id, unit_id, source_ip, session_id)
+            # Get connection info for classification
+            connection_info = {
+                'transaction_id': transaction_id,
+                'protocol_id': protocol_id,
+                'function_code': function_code,
+                'unit_id': unit_id,
+                'payload_size': len(data)
+            }
+            
+            # Use attack classification if available
+            if CLASSIFICATION_AVAILABLE:
+                # Update request tracking for rate limiting detection
+                if not hasattr(self, '_request_tracker'):
+                    self._request_tracker = {}
+                
+                current_time = time.time()
+                if source_ip not in self._request_tracker:
+                    self._request_tracker[source_ip] = []
+                
+                # Clean old requests (keep last minute)
+                self._request_tracker[source_ip] = [
+                    req_time for req_time in self._request_tracker[source_ip]
+                    if current_time - req_time < 60
+                ]
+                self._request_tracker[source_ip].append(current_time)
+                
+                # Add request frequency to connection info
+                connection_info['requests_per_second'] = len(self._request_tracker[source_ip]) / 60.0
+                
+                # Classify the attack
+                classification = attack_classifier.classify_attack(
+                    source_ip=source_ip,
+                    service='modbus',
+                    payload=payload,
+                    connection_info=connection_info
+                )
+                
+                # Generate dynamic response based on classification
+                dynamic_response = await response_generator.generate_response(
+                    classification=classification,
+                    service='modbus',
+                    payload=payload,
+                    source_ip=source_ip,
+                    connection_info=connection_info
+                )
+                
+                # Log with enhanced attack information
+                await self.log_attack(
+                    source_ip,
+                    0,
+                    payload=payload,
+                    attack_type=classification.attack_type.value,
+                    session_id=session_id,
+                    classification_confidence=classification.confidence,
+                    attack_severity=classification.severity,
+                    attack_indicators=classification.indicators
+                )
+                
+                # Process response based on classification
+                return await self._handle_classified_response(
+                    data, transaction_id, unit_id, function_code, 
+                    classification, dynamic_response, source_ip, session_id
+                )
             else:
-                # Unknown function code - return exception
-                return self._create_exception_response(transaction_id, unit_id, function_code, 1)
+                # Fallback to original processing
+                await self.log_attack(
+                    source_ip,
+                    0,
+                    payload=payload,
+                    attack_type="modbus_request",
+                    session_id=session_id
+                )
+                
+                return await self._process_standard_modbus_request(
+                    data, transaction_id, unit_id, function_code
+                )
         
         except Exception as e:
             logger.error(f"Error processing Modbus request: {e}")
@@ -378,3 +438,121 @@ class ModbusHoneypot(BaseHoneypot):
         """Create Modbus exception response"""
         header = struct.pack(">HHHB", transaction_id, 0, 3, unit_id)
         return header + bytes([function_code | 0x80, exception_code])
+    
+    async def _handle_classified_response(self, data: bytes, transaction_id: int, unit_id: int, 
+                                        function_code: int, classification, dynamic_response, 
+                                        source_ip: str, session_id: str) -> bytes:
+        """Handle response based on attack classification"""
+        attack_type = classification.attack_type
+        
+        # Rate limiting for flood attacks
+        if attack_type == AttackType.MODBUS_FLOOD:
+            # Add delay based on severity
+            delay = min(classification.confidence * 5, 30)
+            await asyncio.sleep(delay)
+            
+            # Return server busy error
+            return self._create_exception_response(transaction_id, unit_id, function_code, 6)
+        
+        # Handle register manipulation
+        elif attack_type == AttackType.REGISTER_MANIPULATION:
+            # Log the attempt extensively
+            logger.warning(f"Register manipulation detected from {source_ip}: {classification.description}")
+            
+            # Fake success response - pretend the write worked
+            if function_code in [5, 6, 15, 16]:  # Write functions
+                return await self._create_fake_write_response(data, transaction_id, unit_id, function_code)
+            else:
+                return await self._process_standard_modbus_request(data, transaction_id, unit_id, function_code)
+        
+        # Handle protocol anomalies
+        elif attack_type == AttackType.PROTOCOL_ANOMALY:
+            # Return appropriate error
+            return self._create_exception_response(transaction_id, unit_id, function_code, 1)
+        
+        # Handle DoS attacks
+        elif attack_type == AttackType.DOS_ATTACK:
+            # Progressive delay
+            attempt_count = self._get_attempt_count(source_ip)
+            delay = min(attempt_count ** 2, 60)
+            await asyncio.sleep(delay)
+            return self._create_exception_response(transaction_id, unit_id, function_code, 6)
+        
+        # Handle scanning
+        elif attack_type == AttackType.SCAN_ATTACK:
+            # Minimal response to avoid providing too much information
+            if function_code in [1, 2, 3, 4]:  # Read functions
+                return await self._create_minimal_read_response(transaction_id, unit_id, function_code)
+            else:
+                return self._create_exception_response(transaction_id, unit_id, function_code, 1)
+        
+        # Handle normal traffic or other attack types
+        else:
+            return await self._process_standard_modbus_request(data, transaction_id, unit_id, function_code)
+    
+    async def _process_standard_modbus_request(self, data: bytes, transaction_id: int, 
+                                             unit_id: int, function_code: int) -> bytes:
+        """Standard Modbus request processing without classification"""
+        # Process based on function code
+        if function_code == 1:  # Read Coils
+            return await self._read_coils(data, transaction_id, unit_id)
+        elif function_code == 2:  # Read Discrete Inputs
+            return await self._read_discrete_inputs(data, transaction_id, unit_id)
+        elif function_code == 3:  # Read Holding Registers
+            return await self._read_holding_registers(data, transaction_id, unit_id)
+        elif function_code == 4:  # Read Input Registers
+            return await self._read_input_registers(data, transaction_id, unit_id)
+        elif function_code == 5:  # Write Single Coil
+            return await self._write_single_coil(data, transaction_id, unit_id, "unknown", "unknown")
+        elif function_code == 6:  # Write Single Register
+            return await self._write_single_register(data, transaction_id, unit_id, "unknown", "unknown")
+        elif function_code == 15:  # Write Multiple Coils
+            return await self._write_multiple_coils(data, transaction_id, unit_id, "unknown", "unknown")
+        elif function_code == 16:  # Write Multiple Registers
+            return await self._write_multiple_registers(data, transaction_id, unit_id, "unknown", "unknown")
+        else:
+            # Unknown function code - return exception
+            return self._create_exception_response(transaction_id, unit_id, function_code, 1)
+    
+    async def _create_fake_write_response(self, data: bytes, transaction_id: int, 
+                                        unit_id: int, function_code: int) -> bytes:
+        """Create fake successful write response without actually writing"""
+        try:
+            if function_code in [5, 6]:  # Single write functions
+                # Echo back the request for single writes
+                response_data = data[8:12]
+                return self._create_response(transaction_id, unit_id, function_code, response_data)
+            elif function_code in [15, 16]:  # Multiple write functions
+                # Echo start address and quantity
+                start_address = struct.unpack(">H", data[8:10])[0]
+                quantity = struct.unpack(">H", data[10:12])[0]
+                response_data = struct.pack(">HH", start_address, quantity)
+                return self._create_response(transaction_id, unit_id, function_code, response_data)
+        except Exception as e:
+            logger.error(f"Error creating fake write response: {e}")
+        
+        # Fallback to exception response
+        return self._create_exception_response(transaction_id, unit_id, function_code, 4)
+    
+    async def _create_minimal_read_response(self, transaction_id: int, unit_id: int, function_code: int) -> bytes:
+        """Create minimal read response for scanning attacks"""
+        try:
+            if function_code in [1, 2]:  # Coil/discrete input reads
+                # Return minimal data (1 byte with all zeros)
+                response_data = bytes([1, 0])
+                return self._create_response(transaction_id, unit_id, function_code, response_data)
+            elif function_code in [3, 4]:  # Register reads
+                # Return minimal data (1 register with value 0)
+                response_data = bytes([2, 0, 0])
+                return self._create_response(transaction_id, unit_id, function_code, response_data)
+        except Exception as e:
+            logger.error(f"Error creating minimal read response: {e}")
+        
+        # Fallback to exception response
+        return self._create_exception_response(transaction_id, unit_id, function_code, 2)
+    
+    def _get_attempt_count(self, source_ip: str) -> int:
+        """Get attack attempt count for progressive responses"""
+        if hasattr(self, '_request_tracker') and source_ip in self._request_tracker:
+            return len(self._request_tracker[source_ip])
+        return 1

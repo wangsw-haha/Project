@@ -111,6 +111,42 @@ alerting:
     enabled: false
     webhook_url: ""
 
+# Attack Classification Configuration
+classification:
+  enabled: true
+  # Classification confidence thresholds
+  confidence_thresholds:
+    high: 0.8
+    medium: 0.6
+    low: 0.4
+  
+  # Response strategies
+  response_strategies:
+    rate_limit_and_delay: true
+    rate_limit_and_block: true
+    delay_and_fake_auth: true
+    minimal_response: true
+    fake_success_with_monitoring: true
+    error_response: true
+  
+  # Attack type specific settings
+  attack_settings:
+    modbus_flood:
+      max_requests_per_minute: 10
+      delay_multiplier: 2.0
+    
+    register_manipulation:
+      log_all_writes: true
+      fake_write_success: true
+    
+    brute_force:
+      max_attempts: 5
+      exponential_backoff: true
+    
+    dos_attack:
+      block_threshold: 100
+      block_duration: 300  # seconds
+
 # Logging Configuration
 logging:
   level: "INFO"

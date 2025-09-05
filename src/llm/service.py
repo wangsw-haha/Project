@@ -7,6 +7,15 @@ import torch
 from loguru import logger
 from src.core.config import config
 
+# Import our attack classification system
+try:
+    from src.classification.attack_classifier import attack_classifier, AttackType
+    from src.classification.response_generator import response_generator
+    CLASSIFICATION_AVAILABLE = True
+except ImportError:
+    CLASSIFICATION_AVAILABLE = False
+    logger.warning("Attack classification system not available")
+
 
 class BaseLLMProvider(ABC):
     """Base class for LLM providers"""
@@ -20,6 +29,48 @@ class BaseLLMProvider(ABC):
     async def analyze_attack(self, attack_data: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze attack using LLM"""
         pass
+    
+    async def generate_classified_response(self, source_ip: str, service: str, 
+                                         payload: str = "", **context) -> Dict[str, Any]:
+        """Generate response using attack classification system"""
+        if CLASSIFICATION_AVAILABLE:
+            # Classify the attack
+            classification = attack_classifier.classify_attack(
+                source_ip=source_ip,
+                service=service,
+                payload=payload,
+                connection_info=context.get('connection_info', {})
+            )
+            
+            # Generate dynamic response
+            response = await response_generator.generate_response(
+                classification=classification,
+                service=service,
+                payload=payload,
+                source_ip=source_ip,
+                **context
+            )
+            
+            # Add classification info to response
+            response['classification'] = {
+                'attack_type': classification.attack_type.value,
+                'confidence': classification.confidence,
+                'severity': classification.severity,
+                'description': classification.description,
+                'indicators': classification.indicators
+            }
+            
+            logger.info(f"Classified attack from {source_ip}: {classification.attack_type.value} "
+                       f"(confidence: {classification.confidence:.2f})")
+            
+            return response
+        else:
+            # Fallback to standard LLM response
+            return {
+                'type': 'llm_response',
+                'content': await self.generate_response(payload, context),
+                'status': 'fallback'
+            }
 
 
 class OpenAIProvider(BaseLLMProvider):
@@ -57,37 +108,90 @@ class OpenAIProvider(BaseLLMProvider):
             return "Command not found."
     
     async def analyze_attack(self, attack_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze attack using OpenAI"""
+        """Enhanced attack analysis using both classification and OpenAI"""
         try:
-            if not config.llm.api_key:
-                return {"analysis": "Limited analysis available", "severity": "medium"}
+            analysis_result = {"analysis": "Limited analysis available", "severity": "medium"}
             
-            prompt = self._build_analysis_prompt(attack_data)
+            # Use classification system if available
+            if CLASSIFICATION_AVAILABLE:
+                classification = attack_classifier.classify_attack(
+                    source_ip=attack_data.get('source_ip', ''),
+                    service=attack_data.get('service', ''),
+                    payload=attack_data.get('payload', ''),
+                    connection_info=attack_data.get('connection_info', {})
+                )
+                
+                analysis_result.update({
+                    "attack_type": classification.attack_type.value,
+                    "confidence": classification.confidence,
+                    "severity": classification.severity,
+                    "analysis": classification.description,
+                    "indicators": classification.indicators,
+                    "response_strategy": classification.response_strategy
+                })
+                
+                # Enhance with OpenAI if API key is available
+                if config.llm.api_key:
+                    try:
+                        prompt = self._build_enhanced_analysis_prompt(attack_data, classification)
+                        
+                        response = await openai.ChatCompletion.acreate(
+                            model=config.llm.model,
+                            messages=[
+                                {"role": "system", "content": "You are a cybersecurity expert. Enhance the attack analysis with additional insights."},
+                                {"role": "user", "content": prompt}
+                            ],
+                            max_tokens=config.llm.max_tokens,
+                            temperature=0.3
+                        )
+                        
+                        llm_analysis = response.choices[0].message.content.strip()
+                        analysis_result["enhanced_analysis"] = llm_analysis
+                    except Exception as e:
+                        logger.error(f"Error enhancing analysis with OpenAI: {e}")
+            else:
+                # Fallback to original OpenAI-only analysis
+                if config.llm.api_key:
+                    prompt = self._build_analysis_prompt(attack_data)
+                    
+                    response = await openai.ChatCompletion.acreate(
+                        model=config.llm.model,
+                        messages=[
+                            {"role": "system", "content": "You are a cybersecurity expert analyzing honeypot attacks. Provide structured analysis in JSON format."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        max_tokens=config.llm.max_tokens,
+                        temperature=0.3
+                    )
+                    
+                    try:
+                        analysis = json.loads(response.choices[0].message.content)
+                        analysis_result.update(analysis)
+                    except json.JSONDecodeError:
+                        analysis_result["analysis"] = response.choices[0].message.content
             
-            response = await openai.ChatCompletion.acreate(
-                model=config.llm.model,
-                messages=[
-                    {"role": "system", "content": "You are a cybersecurity expert analyzing honeypot attacks. Provide structured analysis in JSON format."},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=config.llm.max_tokens,
-                temperature=0.3
-            )
+            return analysis_result
             
-            try:
-                analysis = json.loads(response.choices[0].message.content)
-            except json.JSONDecodeError:
-                analysis = {
-                    "analysis": response.choices[0].message.content,
-                    "severity": "medium",
-                    "confidence": 0.5
-                }
-            
-            return analysis
-        
         except Exception as e:
-            logger.error(f"Error analyzing attack with OpenAI: {e}")
+            logger.error(f"Error in enhanced attack analysis: {e}")
             return {"analysis": "Analysis failed", "severity": "medium", "confidence": 0.0}
+    
+    def _build_enhanced_analysis_prompt(self, attack_data: Dict[str, Any], classification) -> str:
+        """Build enhanced analysis prompt using classification context"""
+        return f"""The attack classification system identified this as a {classification.attack_type.value} attack 
+with {classification.confidence:.2f} confidence and {classification.severity} severity.
+
+Please provide additional insights and context for this attack:
+
+Attack Data:
+- Source IP: {attack_data.get('source_ip', 'unknown')}
+- Service: {attack_data.get('service', 'unknown')}  
+- Payload: {attack_data.get('payload', 'none')}
+- Classification: {classification.description}
+- Indicators: {', '.join(classification.indicators)}
+
+What additional threats should we be aware of? Are there any advanced persistent threat indicators?
+Suggest enhanced monitoring or mitigation strategies."""
     
     def _build_system_prompt(self, context: Dict[str, Any] = None) -> str:
         """Build system prompt for response generation"""
