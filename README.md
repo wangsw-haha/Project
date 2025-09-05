@@ -11,14 +11,25 @@ This honeypot system simulates various industrial protocols and services to attr
 ### 🛡️ **Multi-Protocol Honeypots**
 - **SSH Honeypot**: Simulates Linux servers with fake filesystem and command execution
 - **HTTP Honeypot**: Mimics web applications with vulnerable endpoints
-- **Modbus TCP Honeypot**: Industrial protocol simulation for PLC attacks
+- **Modbus TCP Honeypot**: Industrial protocol simulation for PLC attacks with enhanced attack detection
 - **FTP Honeypot**: File transfer protocol with fake file systems
 - **Telnet Honeypot**: Legacy terminal access simulation
 
-### 🤖 **AI-Powered Analysis**
+### 🤖 **AI-Powered Analysis & Dynamic Responses**
 - **LLM Integration**: OpenAI GPT and Hugging Face model support
-- **Intelligent Responses**: Context-aware command responses
-- **Attack Classification**: Automated threat categorization
+- **10-Type Attack Classification**: Automatic categorization of attacks (十大攻击类型):
+  - 正常流量 (Normal traffic)
+  - Modbus洪水攻击 (Modbus flood attack)
+  - 寄存器操控 (Register manipulation)
+  - 协议异常 (Protocol anomaly)
+  - 拒绝服务攻击 (DoS attack)
+  - 中间人攻击 (Man-in-the-middle attack)
+  - 扫描攻击 (Scan attack)
+  - 暴力破解 (Brute force attack)
+  - 畸形数据包 (Malformed packet)
+  - 未知攻击 (Unknown attack)
+- **Dynamic Response Generation**: Context-aware responses based on attack type
+- **Progressive Defense**: Rate limiting, delays, and fake responses
 - **Behavioral Analysis**: Pattern recognition and anomaly detection
 
 ### 📊 **Real-time Monitoring**
@@ -65,6 +76,12 @@ cd Project
 
 # Set environment variables (optional)
 export OPENAI_API_KEY="your-openai-api-key"
+
+# Test the attack classification system
+python test_classification.py
+
+# Generate attack datasets for model training
+python generate_datasets.py
 
 # Start with Docker Compose
 docker-compose up -d
@@ -132,6 +149,21 @@ honeypots:
     enabled: true
     port: 5020
     device_name: "Industrial PLC Controller"
+
+# Attack Classification System
+classification:
+  enabled: true
+  confidence_thresholds:
+    high: 0.8
+    medium: 0.6
+    low: 0.4
+  
+  attack_settings:
+    modbus_flood:
+      max_requests_per_minute: 10
+    register_manipulation:
+      log_all_writes: true
+      fake_write_success: true
 ```
 
 ## Access Points
