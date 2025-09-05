@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  honeypot:
+    build: .
+    ports:
+      - "8000:8000"  # Web interface
+      - "2222:22"    # SSH honeypot
+      - "8080:80"    # HTTP honeypot
+      - "5020:502"   # Modbus honeypot
+      - "2121:21"    # FTP honeypot
+      - "2323:23"    # Telnet honeypot
+      - "1161:161"   # SNMP honeypot
+    environment:
+      - DATABASE_URL=postgresql://honeypot:honeypot123@db:5432/honeypot_db
+      - REDIS_URL=redis://redis:6379/0
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./config:/app/config
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+    networks:
+      - honeypot-network
+
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=honeypot_db
+      - POSTGRES_USER=honeypot
+      - POSTGRES_PASSWORD=honeypot123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - honeypot-network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - honeypot-network
+    restart: unless-stopped
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - honeypot-network
+    restart: unless-stopped
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+    networks:
+      - honeypot-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  elasticsearch_data:
+
+networks:
+  honeypot-network:
+    driver: bridge

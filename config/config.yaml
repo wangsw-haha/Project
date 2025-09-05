@@ -1,0 +1,156 @@
+# Honeypot Configuration
+app:
+  name: "Industrial IoT Honeypot"
+  version: "1.0.0"
+  host: "0.0.0.0"
+  port: 8000
+  debug: false
+
+# Database Configuration
+database:
+  url: "postgresql://honeypot:honeypot123@localhost:5432/honeypot_db"
+  echo: false
+  pool_size: 10
+  max_overflow: 20
+
+# Redis Configuration
+redis:
+  url: "redis://localhost:6379/0"
+  
+# LLM Configuration
+llm:
+  provider: "openai"  # openai, huggingface, local
+  model: "gpt-3.5-turbo"
+  api_key: ""  # Set via environment variable
+  max_tokens: 500
+  temperature: 0.7
+  
+  # Local model settings (if using local)
+  local_model_path: "./models/llm"
+  device: "cpu"  # cpu, cuda
+
+# Honeypot Services Configuration
+honeypots:
+  ssh:
+    enabled: true
+    port: 22
+    banner: "SSH-2.0-OpenSSH_8.2p1 Ubuntu-4ubuntu0.5"
+    fake_filesystem: true
+    allow_commands: ["ls", "pwd", "whoami", "cat", "ps", "netstat"]
+    
+  http:
+    enabled: true
+    port: 80
+    server_header: "Apache/2.4.41 (Ubuntu)"
+    fake_pages: true
+    simulate_vulnerabilities: true
+    
+  modbus:
+    enabled: true
+    port: 502
+    slave_id: 1
+    device_name: "Industrial PLC Controller"
+    registers_count: 100
+    
+  ftp:
+    enabled: true
+    port: 21
+    banner: "220 (vsFTPd 3.0.3)"
+    fake_filesystem: true
+    
+  telnet:
+    enabled: true
+    port: 23
+    banner: "Ubuntu 20.04.3 LTS"
+    
+  snmp:
+    enabled: true
+    port: 161
+    community: "public"
+    system_description: "Industrial Gateway v2.1"
+
+# Monitoring Configuration
+monitoring:
+  prometheus:
+    enabled: true
+    port: 9090
+    
+  elasticsearch:
+    enabled: true
+    host: "localhost"
+    port: 9200
+    index_prefix: "honeypot"
+
+# Security Configuration
+security:
+  rate_limiting:
+    enabled: true
+    requests_per_minute: 60
+    
+  geolocation:
+    enabled: true
+    
+  threat_intelligence:
+    enabled: true
+    
+# Alerting Configuration
+alerting:
+  email:
+    enabled: false
+    smtp_server: ""
+    smtp_port: 587
+    username: ""
+    password: ""
+    recipients: []
+    
+  webhook:
+    enabled: false
+    url: ""
+    
+  slack:
+    enabled: false
+    webhook_url: ""
+
+# Attack Classification Configuration
+classification:
+  enabled: true
+  # Classification confidence thresholds
+  confidence_thresholds:
+    high: 0.8
+    medium: 0.6
+    low: 0.4
+  
+  # Response strategies
+  response_strategies:
+    rate_limit_and_delay: true
+    rate_limit_and_block: true
+    delay_and_fake_auth: true
+    minimal_response: true
+    fake_success_with_monitoring: true
+    error_response: true
+  
+  # Attack type specific settings
+  attack_settings:
+    modbus_flood:
+      max_requests_per_minute: 10
+      delay_multiplier: 2.0
+    
+    register_manipulation:
+      log_all_writes: true
+      fake_write_success: true
+    
+    brute_force:
+      max_attempts: 5
+      exponential_backoff: true
+    
+    dos_attack:
+      block_threshold: 100
+      block_duration: 300  # seconds
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  file: "./logs/honeypot.log"
+  max_size: "100MB"
+  backup_count: 5
+  format: "{time:YYYY-MM-DD HH:mm:ss} | {level} | {name}:{function}:{line} | {message}"

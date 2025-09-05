@@ -1,0 +1,109 @@
+# Logs directory
+logs/
+*.log
+
+# Data directory
+data/
+*.db
+*.sqlite
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Docker
+.dockerignore
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/
+
+# Database
+*.sql
+
+# SSL certificates
+*.pem
+*.key
+*.crt
+*.p12
+
+# Backup files
+backup/
+backups/
+*.backup
+*.bak
+
+# Models (if using local LLM models)
+models/
+*.bin
+*.safetensors
+
+# Configuration (sensitive)
+config/local.yaml
+config/production.yaml
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Documentation build
+docs/_build/
+
+# Node modules (if any)
+node_modules/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# System files
+*.pid
+*.sock
