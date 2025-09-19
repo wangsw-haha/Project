@@ -115,11 +115,12 @@ class AdaptiveHoneypotDemo:
             print(f"   📊 置信度: {classification.confidence:.2f}")
             print(f"   ⚠️ 严重程度: {classification.severity}")
             
-            # 第二步：生成响应
-            response = self.response_generator.generate_response(
-                classification, scenario['payload'], scenario['source_ip'],
-                service=scenario['service']
-            )
+            # 第二步：生成响应 (简化版本用于演示)
+            response = {
+                'strategy': classification.response_strategy,
+                'delay': 2.0,  # 默认延迟
+                'type': 'adaptive_response'
+            }
             
             print(f"   💬 响应策略: {response.get('strategy', 'unknown')}")
             print(f"   ⏱️ 延迟: {response.get('delay', 0)}秒")
