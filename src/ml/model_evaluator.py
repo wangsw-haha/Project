@@ -13,6 +13,16 @@ from loguru import logger
 from collections import defaultdict
 import math
 
+def serialize_numpy(obj):
+    """Convert numpy types for JSON serialization"""
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return str(obj)
+
 # Visualization (optional)
 try:
     import matplotlib.pyplot as plt
@@ -493,9 +503,9 @@ class ModelEvaluator:
         if len(self.performance_metrics) > 1:
             report['model_comparison'] = self.compare_models(self.performance_metrics)
         
-        # Save report
+        # Save report with proper serialization
         with open(save_path, 'w') as f:
-            json.dump(report, f, indent=2)
+            json.dump(report, f, indent=2, default=serialize_numpy)
         
         logger.info(f"Evaluation report saved to {save_path}")
         return report
